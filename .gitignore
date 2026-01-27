@@ -1,0 +1,15 @@
+# Build artifacts
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+
+# CSV data
+data/
+
+# DataSimMRT - only track .py and .png files
+DataSimMRT/*
+!DataSimMRT/*.py
+!DataSimMRT/*.png
