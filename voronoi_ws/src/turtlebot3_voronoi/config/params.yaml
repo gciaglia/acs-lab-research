@@ -1,0 +1,40 @@
+# Fleet configuration
+fleet:
+  robots:
+    - {name: tb3_0, spawn_x:  0.0,  spawn_y:  0.0,  spawn_yaw:  0.0}
+    - {name: tb3_1, spawn_x:  0.3,  spawn_y:  0.0,  spawn_yaw:  1.5708}
+    - {name: tb3_2, spawn_x:  0.0,  spawn_y:  0.3,  spawn_yaw:  3.1416}
+    - {name: tb3_3, spawn_x:  0.3,  spawn_y:  0.3,  spawn_yaw: -1.5708}
+    - {name: tb3_4, spawn_x:  0.15, spawn_y:  0.15, spawn_yaw:  0.0}
+
+# Arena region bounds (meters)
+region:
+  min_x: -3.0
+  max_x:  3.0
+  min_y: -3.0
+  max_y:  3.0
+
+# Controller parameters
+controller:
+  linear_speed: 0.2           # max forward speed (m/s)
+  angular_speed: 0.8          # max turning speed (rad/s)
+  lloyd_gain: 0.3             # proportional gain for centroid-seeking
+  control_rate_hz: 10.0       # control loop frequency
+  pose_broadcast_rate_hz: 10.0
+  explore_duration_sec: 5.0   # random walk before Voronoi starts
+  centroid_samples: 500       # Monte Carlo samples for centroid
+
+# Collision avoidance
+collision:
+  avoidance_radius: 0.4      # repulsion activates within this distance (m)
+  emergency_radius: 0.25     # emergency evasion threshold (m)
+
+# Density field
+density:
+  type: "uniform"             # "uniform" | "mrt_file"
+  mrt_file: ""                # path to .npy or .tif (when type = mrt_file)
+
+# Visualizer
+visualizer:
+  rate_hz: 5.0
+  frame_id: "default"

@@ -1,4 +1,4 @@
-# Build artifacts
+# Build artifacts (ROS2 workspace)
 build/
 install/
 log/
@@ -9,7 +9,11 @@ __pycache__/
 # CSV data
 data/
 
+# Archive
+Archive/
+
 # DataSimMRT - only track .py and .png files
 DataSimMRT/*
 !DataSimMRT/*.py
 !DataSimMRT/*.png
+!DataSimMRT/*.md
