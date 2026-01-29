@@ -61,6 +61,16 @@ class GridDensity(DensityField):
         self._arena_h = self._max_y - self._min_y
         self._grid_h, self._grid_w = grid.shape
 
+    @property
+    def grid(self):
+        """Return the underlying density grid array."""
+        return self._grid
+
+    @property
+    def bounds(self):
+        """Return (min_x, max_x, min_y, max_y) arena bounds."""
+        return (self._min_x, self._max_x, self._min_y, self._max_y)
+
     def __call__(self, points):
         weights = np.ones(len(points))
 
@@ -68,9 +78,9 @@ class GridDensity(DensityField):
             norm_x = (x - self._min_x) / self._arena_w
             norm_y = (y - self._min_y) / self._arena_h
 
-            # Convert to grid indices (y flipped for image coordinates)
+            # Convert to grid indices (matches matplotlib extent=[-3,3,3,-3] with origin='upper')
             gx = int(np.clip(norm_x * (self._grid_w - 1), 0, self._grid_w - 1))
-            gy = int(np.clip((1 - norm_y) * (self._grid_h - 1), 0, self._grid_h - 1))
+            gy = int(np.clip(norm_y * (self._grid_h - 1), 0, self._grid_h - 1))
 
             weights[i] = self._grid[gy, gx]
 
@@ -102,16 +112,21 @@ class GridDensity(DensityField):
         return cls(grid, region_bounds)
 
     @classmethod
-    def from_geotiff(cls, filepath, region_bounds, target_size=100):
-        """Load density grid from a GeoTIFF file.
+    def from_geotiff(cls, filepath, region_bounds, target_size=100,
+                     center_x=46160, center_y=29736, extract_size=50):
+        """Load density grid from a GeoTIFF file with region extraction.
 
-        Uses tifffile + zarr for memory-efficient reading and subsamples
-        to a manageable grid size.
+        Uses tifffile + zarr for memory-efficient reading. Extracts a region
+        centered on the specified pixel coordinates (default: Gammage Center).
 
         Args:
             filepath: Path to .tif file.
             region_bounds: (min_x, max_x, min_y, max_y) arena coordinates.
             target_size: Approximate grid dimension after subsampling.
+            center_x: X pixel coordinate for extraction center (default: Gammage).
+            center_y: Y pixel coordinate for extraction center (default: Gammage).
+            extract_size: Size in pixels to extract (e.g., 50 for 50x50m region).
+                         Since MRT data is 1 pixel = 1 meter, this equals meters.
 
         Returns:
             GridDensity instance.
@@ -122,12 +137,23 @@ class GridDensity(DensityField):
         store = tifffile.imread(filepath, aszarr=True)
         z = zarr.open(store, mode='r')
 
-        # Subsample to target size
-        step = max(1, min(z.shape[0], z.shape[1]) // target_size)
-        grid = z[::step, ::step].astype(float)
+        # Calculate extraction bounds (centered on specified coordinates)
+        half_size = extract_size // 2
+        y_start = max(0, center_y - half_size)
+        y_end = min(z.shape[0], center_y + half_size)
+        x_start = max(0, center_x - half_size)
+        x_end = min(z.shape[1], center_x + half_size)
+
+        # Extract the region of interest
+        grid = z[y_start:y_end, x_start:x_end].astype(float)
         store.close()
 
-        # Normalize to [0.1, 1.0]
+        # Subsample if larger than target_size
+        if grid.shape[0] > target_size or grid.shape[1] > target_size:
+            step = max(1, min(grid.shape[0], grid.shape[1]) // target_size)
+            grid = grid[::step, ::step]
+
+        # Normalize to [0.1, 1.0] range (avoid zero weights)
         valid = grid > 0
         if valid.any():
             gmin = grid[valid].min()

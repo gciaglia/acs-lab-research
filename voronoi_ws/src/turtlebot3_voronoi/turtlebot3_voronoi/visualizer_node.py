@@ -16,6 +16,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 
 from turtlebot3_voronoi.voronoi_math import get_bounded_voronoi_cells, compute_centroid
+from turtlebot3_voronoi.density_field import GridDensity
 
 
 # Per-robot colors: blue, orange, green, red, purple
@@ -42,6 +43,12 @@ class VoronoiVisualizer(Node):
         self.declare_parameter('region_max_y', 3.0)
         self.declare_parameter('rate_hz', 5.0)
         self.declare_parameter('frame_id', 'default')
+        self.declare_parameter('density_type', 'uniform')
+        self.declare_parameter('mrt_file', '')
+        self.declare_parameter('mrt_center_x', 46160)
+        self.declare_parameter('mrt_center_y', 29736)
+        self.declare_parameter('mrt_extract_size', 50)
+        self.declare_parameter('density_grid_resolution', 20)
 
         num_robots = self.get_parameter('num_robots').value
         self.region_min_x = self.get_parameter('region_min_x').value
@@ -50,11 +57,38 @@ class VoronoiVisualizer(Node):
         self.region_max_y = self.get_parameter('region_max_y').value
         rate_hz = self.get_parameter('rate_hz').value
         self.frame_id = self.get_parameter('frame_id').value
+        density_type = self.get_parameter('density_type').value
+        mrt_file = self.get_parameter('mrt_file').value
+        mrt_center_x = self.get_parameter('mrt_center_x').value
+        mrt_center_y = self.get_parameter('mrt_center_y').value
+        mrt_extract_size = self.get_parameter('mrt_extract_size').value
+        self.density_grid_res = self.get_parameter('density_grid_resolution').value
 
         self.region_bounds = (
             self.region_min_x, self.region_max_x,
             self.region_min_y, self.region_max_y,
         )
+
+        # Load density field for visualization
+        self.density_field = None
+        self.density_markers = None
+        if density_type == 'mrt_file' and mrt_file:
+            try:
+                if mrt_file.lower().endswith('.tif'):
+                    self.density_field = GridDensity.from_geotiff(
+                        mrt_file, self.region_bounds,
+                        center_x=mrt_center_x,
+                        center_y=mrt_center_y,
+                        extract_size=mrt_extract_size,
+                    )
+                elif mrt_file.endswith('.npy'):
+                    self.density_field = GridDensity.from_npy(
+                        mrt_file, self.region_bounds
+                    )
+                self.get_logger().info(f'Loaded density field for visualization')
+                self.density_markers = self._create_density_markers()
+            except Exception as e:
+                self.get_logger().error(f'Failed to load density field: {e}')
 
         # Fleet positions: robot_name -> (x, y)
         self.fleet_positions = {}
@@ -86,6 +120,66 @@ class VoronoiVisualizer(Node):
             msg.pose.position.x, msg.pose.position.y,
         )
 
+    def _create_density_markers(self):
+        """Create static markers for density field visualization (heat map)."""
+        if self.density_field is None:
+            return None
+
+        grid = self.density_field.grid
+        grid_h, grid_w = grid.shape
+
+        # Create a CUBE_LIST marker for efficient rendering
+        marker = Marker()
+        marker.header.frame_id = self.frame_id
+        marker.ns = 'density_field'
+        marker.id = 0
+        marker.type = Marker.CUBE_LIST
+        marker.action = Marker.ADD
+
+        # Calculate cell size based on arena and grid resolution
+        arena_w = self.region_max_x - self.region_min_x
+        arena_h = self.region_max_y - self.region_min_y
+        cell_w = arena_w / self.density_grid_res
+        cell_h = arena_h / self.density_grid_res
+
+        marker.scale.x = cell_w * 0.95
+        marker.scale.y = cell_h * 0.95
+        marker.scale.z = 0.01
+
+        # Sample the density grid at visualization resolution
+        for iy in range(self.density_grid_res):
+            for ix in range(self.density_grid_res):
+                # Arena position for this cell
+                x = self.region_min_x + (ix + 0.5) * cell_w
+                y = self.region_min_y + (iy + 0.5) * cell_h
+
+                # Get density value at this position
+                density_val = self.density_field(np.array([[x, y]]))[0]
+
+                # Create point
+                p = Point()
+                p.x = float(x)
+                p.y = float(y)
+                p.z = -0.01  # Slightly below ground plane
+                marker.points.append(p)
+
+                # Color: blue (cold) -> yellow -> red (hot)
+                # density_val is normalized to [0.1, 1.0]
+                t = (density_val - 0.1) / 0.9  # Normalize to [0, 1]
+                if t < 0.5:
+                    r = 2 * t
+                    g = 2 * t
+                    b = 1 - 2 * t
+                else:
+                    r = 1.0
+                    g = 2 * (1 - t)
+                    b = 0.0
+
+                color = ColorRGBA(r=float(r), g=float(g), b=float(b), a=0.7)
+                marker.colors.append(color)
+
+        return marker
+
     def _publish_markers(self):
         if len(self.fleet_positions) < 2:
             return
@@ -93,6 +187,13 @@ class VoronoiVisualizer(Node):
         marker_array = MarkerArray()
         marker_id = 0
         now = self.get_clock().now().to_msg()
+
+        # --- Density field heat map (if loaded) ---
+        if self.density_markers is not None:
+            self.density_markers.header.stamp = now
+            self.density_markers.id = marker_id
+            marker_id += 1
+            marker_array.markers.append(self.density_markers)
 
         sorted_names = sorted(self.fleet_positions.keys())
         positions = np.array([

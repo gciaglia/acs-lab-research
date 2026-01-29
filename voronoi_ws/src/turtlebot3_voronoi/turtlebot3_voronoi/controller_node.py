@@ -21,7 +21,7 @@ from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Odometry
 
 from turtlebot3_voronoi.odometry import OdometryProcessor
-from turtlebot3_voronoi.voronoi_math import get_bounded_voronoi_cells, compute_centroid
+from turtlebot3_voronoi.voronoi_math import get_bounded_voronoi_cells, compute_centroid, find_hotspot
 from turtlebot3_voronoi.motion import compute_collision_avoidance, compute_velocity_command
 from turtlebot3_voronoi.density_field import UniformDensity, GridDensity
 
@@ -53,6 +53,10 @@ class VoronoiController(Node):
         self.declare_parameter('emergency_radius', 0.25)
         self.declare_parameter('density_type', 'uniform')
         self.declare_parameter('mrt_file', '')
+        self.declare_parameter('mrt_center_x', 46160)
+        self.declare_parameter('mrt_center_y', 29736)
+        self.declare_parameter('mrt_extract_size', 50)
+        self.declare_parameter('target_mode', 'hotspot')  # 'centroid' or 'hotspot'
 
         # -- Read parameters -----------------------------------------------------
         self.robot_name = self.get_parameter('robot_name').value
@@ -75,6 +79,10 @@ class VoronoiController(Node):
         self.emergency_radius = self.get_parameter('emergency_radius').value
         density_type = self.get_parameter('density_type').value
         mrt_file = self.get_parameter('mrt_file').value
+        mrt_center_x = self.get_parameter('mrt_center_x').value
+        mrt_center_y = self.get_parameter('mrt_center_y').value
+        mrt_extract_size = self.get_parameter('mrt_extract_size').value
+        self.target_mode = self.get_parameter('target_mode').value
 
         # -- Derived state -------------------------------------------------------
         self.region_bounds = (
@@ -86,7 +94,9 @@ class VoronoiController(Node):
         self.odom = OdometryProcessor(spawn_x, spawn_y, spawn_yaw)
 
         # Density field for weighted centroids
-        self.density_fn = self._build_density_field(density_type, mrt_file)
+        self.density_fn = self._build_density_field(
+            density_type, mrt_file, mrt_center_x, mrt_center_y, mrt_extract_size
+        )
 
         # Fleet positions: robot_name -> (x, y)
         self.fleet_positions = {}
@@ -140,12 +150,14 @@ class VoronoiController(Node):
 
         self.get_logger().info(
             f'Controller started: {self.robot_name} (ID {self.robot_id}), '
-            f'explore {self.explore_duration}s then Lloyd\'s, density={density_type}'
+            f'explore {self.explore_duration}s then Lloyd\'s, '
+            f'density={density_type}, target={self.target_mode}'
         )
 
     # -- Density field setup ---------------------------------------------------
 
-    def _build_density_field(self, density_type, mrt_file):
+    def _build_density_field(self, density_type, mrt_file,
+                              mrt_center_x, mrt_center_y, mrt_extract_size):
         """Create the appropriate density field from parameters."""
         if density_type == 'uniform' or not mrt_file:
             return None  # None = geometric centroid (no weighting)
@@ -154,7 +166,16 @@ class VoronoiController(Node):
             if mrt_file.endswith('.npy'):
                 field = GridDensity.from_npy(mrt_file, self.region_bounds)
             elif mrt_file.lower().endswith('.tif'):
-                field = GridDensity.from_geotiff(mrt_file, self.region_bounds)
+                field = GridDensity.from_geotiff(
+                    mrt_file, self.region_bounds,
+                    center_x=mrt_center_x,
+                    center_y=mrt_center_y,
+                    extract_size=mrt_extract_size,
+                )
+                self.get_logger().info(
+                    f'Extracting {mrt_extract_size}m region centered at '
+                    f'pixel ({mrt_center_x}, {mrt_center_y})'
+                )
             else:
                 self.get_logger().error(f'Unsupported density file: {mrt_file}')
                 return None
@@ -253,12 +274,22 @@ class VoronoiController(Node):
                 self._publish_stop()
                 return
 
-            centroid = compute_centroid(
-                cells[my_idx],
-                density_fn=self.density_fn,
-                n_samples=self.centroid_samples,
-            )
-            self.target_x, self.target_y = centroid
+            # Compute target based on mode: hotspot or centroid
+            if self.target_mode == 'hotspot' and self.density_fn is not None:
+                # Find the hottest point in the cell
+                target = find_hotspot(
+                    cells[my_idx],
+                    density_fn=self.density_fn,
+                    n_samples=self.centroid_samples,
+                )
+            else:
+                # Use density-weighted centroid (or geometric if no density)
+                target = compute_centroid(
+                    cells[my_idx],
+                    density_fn=self.density_fn,
+                    n_samples=self.centroid_samples,
+                )
+            self.target_x, self.target_y = target
 
         # --- Motion command ---
         other_positions = [

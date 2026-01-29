@@ -132,3 +132,43 @@ def compute_centroid(cell_vertices, density_fn=None, n_samples=500):
             return np.array([weighted_x, weighted_y])
 
     return samples_inside.mean(axis=0)
+
+
+def find_hotspot(cell_vertices, density_fn, n_samples=500):
+    """Find the hotspot (maximum density point) within a polygon.
+
+    Uses Monte Carlo sampling to find the point with highest density value
+    within the Voronoi cell. This is different from the weighted centroid -
+    the robot will move directly to the hottest point.
+
+    Args:
+        cell_vertices: (M, 2) array of polygon vertices.
+        density_fn: Callable mapping (K, 2) points to (K,) density values.
+        n_samples: Number of random samples for searching.
+
+    Returns:
+        (2,) array — the hotspot position (point with maximum density).
+    """
+    if len(cell_vertices) < 3:
+        return cell_vertices.mean(axis=0)
+
+    if density_fn is None:
+        # No density function, fall back to geometric centroid
+        return cell_vertices.mean(axis=0)
+
+    min_xy = cell_vertices.min(axis=0)
+    max_xy = cell_vertices.max(axis=0)
+
+    samples = np.random.uniform(min_xy, max_xy, size=(n_samples, 2))
+    inside = points_in_polygon(samples, cell_vertices)
+    samples_inside = samples[inside]
+
+    if len(samples_inside) == 0:
+        return cell_vertices.mean(axis=0)
+
+    # Evaluate density at all interior points
+    densities = density_fn(samples_inside)
+
+    # Find the point with maximum density
+    max_idx = np.argmax(densities)
+    return samples_inside[max_idx]

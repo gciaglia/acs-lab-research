@@ -127,6 +127,10 @@ def _launch_setup(context):
 
     density_type = LaunchConfiguration('density_type').perform(context)
     mrt_file = LaunchConfiguration('mrt_file').perform(context)
+    mrt_center_x = int(LaunchConfiguration('mrt_center_x').perform(context))
+    mrt_center_y = int(LaunchConfiguration('mrt_center_y').perform(context))
+    mrt_extract_size = int(LaunchConfiguration('mrt_extract_size').perform(context))
+    target_mode = LaunchConfiguration('target_mode').perform(context)
 
     robots = _generate_random_robots(NUM_ROBOTS)
 
@@ -200,6 +204,10 @@ def _launch_setup(context):
                 'emergency_radius': 0.25,
                 'density_type': density_type,
                 'mrt_file': mrt_file,
+                'mrt_center_x': mrt_center_x,
+                'mrt_center_y': mrt_center_y,
+                'mrt_extract_size': mrt_extract_size,
+                'target_mode': target_mode,
                 **region_params,
             }],
         ))
@@ -215,6 +223,11 @@ def _launch_setup(context):
             'use_sim_time': True,
             'rate_hz': 5.0,
             'frame_id': 'default',
+            'density_type': density_type,
+            'mrt_file': mrt_file,
+            'mrt_center_x': mrt_center_x,
+            'mrt_center_y': mrt_center_y,
+            'mrt_extract_size': mrt_extract_size,
             **region_params,
         }],
     )
@@ -284,6 +297,14 @@ def generate_launch_description():
                               description='Density field type: uniform | mrt_file'),
         DeclareLaunchArgument('mrt_file', default_value='',
                               description='Path to MRT .npy or .tif file'),
+        DeclareLaunchArgument('mrt_center_x', default_value='46160',
+                              description='X pixel coordinate for MRT extraction center (Gammage default)'),
+        DeclareLaunchArgument('mrt_center_y', default_value='29736',
+                              description='Y pixel coordinate for MRT extraction center (Gammage default)'),
+        DeclareLaunchArgument('mrt_extract_size', default_value='50',
+                              description='Region size in meters to extract from MRT (default 50m)'),
+        DeclareLaunchArgument('target_mode', default_value='hotspot',
+                              description='Target mode: hotspot (track max density) | centroid (weighted centroid)'),
 
         # t=0s: Gazebo + static TF
         gazebo,

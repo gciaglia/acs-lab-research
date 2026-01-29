@@ -18,6 +18,8 @@
 
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-tifffile</exec_depend>
+  <exec_depend>python3-zarr</exec_depend>
 
   <exec_depend>rviz2</exec_depend>
 

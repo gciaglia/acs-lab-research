@@ -40,6 +40,7 @@ Visualization Manager:
       Namespaces:
         arena_boundary: true
         centroids: true
+        density_field: true
         robot_labels: true
         robots: true
         voronoi_cells: true
